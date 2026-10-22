@@ -12,14 +12,14 @@ from telethon.tl.types import (
     UserStatusLastWeek
 )
 
-# Render Environment Variables se fetch karna (Zero hardcoded secrets)
+# Render Environment Variables se fetch hoga
 API_ID = int(os.environ.get("API_ID"))
 API_HASH = os.environ.get("API_HASH")
 SESSION_STRING = os.environ.get("SESSION_STRING")
 TARGET_USER = os.environ.get("TARGET_USER")
 ALERT_RECEIVER = os.environ.get("ALERT_RECEIVER")
 
-# Dummy Flask Web Server (Render port binding ke liye zaroori)
+# Render free tier port binding ke liye dummy server
 app = Flask(__name__)
 
 @app.route('/')
@@ -30,7 +30,7 @@ def run_flask():
     port = int(os.environ.get("PORT", 8080))
     app.run(host="0.0.0.0", port=port)
 
-# Telethon client initialized via StringSession
+# Client initialization
 client = TelegramClient(StringSession(SESSION_STRING), API_ID, API_HASH)
 
 online_sessions = {}
@@ -45,7 +45,7 @@ async def handler(event):
     now = datetime.datetime.now()
     status = event.status
 
-    # Case 1: User Online Aaya
+    # User Online Aaya
     if event.online or isinstance(status, UserStatusOnline):
         if event.user_id not in online_sessions:
             online_sessions[event.user_id] = now
@@ -56,7 +56,7 @@ async def handler(event):
             )
             await client.send_message(alert_dest_id, msg, parse_mode='html')
 
-    # Case 2: User Offline Gaya (Dono privacy types: Exact ya Hidden 'Recently')
+    # User Offline Gaya
     elif (
         event.offline 
         or isinstance(status, (UserStatusOffline, UserStatusRecently, UserStatusLastWeek))
@@ -104,6 +104,11 @@ if __name__ == '__main__':
     flask_thread.daemon = True
     flask_thread.start()
 
-    # Telethon loop run karna
-    loop = asyncio.get_event_loop()
+    # Python 3.10+ compatible event loop setup
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
     loop.run_until_complete(start_tracker())
