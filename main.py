@@ -6,7 +6,8 @@ import pytz
 from flask import Flask
 from telethon import TelegramClient, events
 from telethon.sessions import StringSession
-from telethon.tl.functions.users import GetFullUserRequest
+from telethon.tl.functions.account import UpdateStatusRequest
+from telethon.tl.functions.users import GetUsersRequest
 from telethon.tl.types import (
     UserStatusOnline,
     UserStatusOffline,
@@ -26,7 +27,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return "Telegram Hybrid Tracker is running 24/7!"
+    return "Telegram Deep Tracker is running 24/7!"
 
 def run_flask():
     port = int(os.environ.get("PORT", 8080))
@@ -46,25 +47,25 @@ async def send_alert(message):
     try:
         await client.send_message(alert_dest_id, message, parse_mode='html')
     except Exception as e:
-        print(f"Alert sending error: {e}")
+        print(f"Alert error: {e}")
 
 async def handle_status_change(status):
     global is_currently_online, session_start_time
     now = get_ist_now()
 
-    # Case 1: Target Active / Online Aaya
+    # User Online Detect Hua
     if isinstance(status, UserStatusOnline):
         if not is_currently_online:
             is_currently_online = True
             session_start_time = now
             time_str = now.strftime('%I:%M:%S %p')
             msg = (
-                f"🟢 <b>@{TARGET_USER} Online Aaya!</b>\n"
+                f"🟢 <b>@{TARGET_USER} Active Aaya!</b>\n"
                 f"⏰ Start Time: <code>{time_str}</code>"
             )
             await send_alert(msg)
 
-    # Case 2: Target Offline Gaya (Nobody 'Recently' mode ya Standard Offline)
+    # User Offline / Recently Detect Hua
     elif isinstance(status, (UserStatusOffline, UserStatusRecently, UserStatusLastWeek)):
         if is_currently_online:
             is_currently_online = False
@@ -77,36 +78,48 @@ async def handle_status_change(status):
             duration_str = f"{minutes}m {seconds}s"
             offline_time_str = now.strftime('%I:%M:%S %p')
 
-            mode_label = "Last seen recently (Nobody)" if isinstance(status, UserStatusRecently) else "Standard"
+            mode = "Nobody (Recently)" if isinstance(status, UserStatusRecently) else "Standard"
 
             msg = (
                 f"🔴 <b>@{TARGET_USER} Offline Ho Gaya!</b>\n"
                 f"⏰ Left at: <code>{offline_time_str}</code>\n"
                 f"⏱ Active Duration: <code>{duration_str}</code>\n"
-                f"🔒 Privacy Mode: <i>{mode_label}</i>"
+                f"🔒 Mode: <i>{mode}</i>"
             )
             await send_alert(msg)
 
-# Real-time Telegram Event Listener
-@client.on(events.UserUpdate)
-async def event_listener(event):
-    if event.user_id == target_id and event.status:
-        await handle_status_change(event.status)
+# Loop 1: Host Presence Heartbeat (Host ko online dikhana taaki reciprocal packets unlock hon)
+async def keep_host_online_loop():
+    while True:
+        try:
+            # Server ko batana ki Host live active hai
+            await client(UpdateStatusRequest(offline=False))
+        except Exception as e:
+            print(f"Heartbeat warning: {e}")
+        await asyncio.sleep(45)
 
-# Background Poller (Nobody mode aur passive drop bypass karne ke liye)
-async def status_polling_loop():
+# Loop 2: Raw User Presence Check
+async def deep_status_poller():
     target_input = await client.get_input_entity(TARGET_USER)
     while True:
         try:
-            full_user = await client(GetFullUserRequest(target_input))
-            user = full_user.users[0]
-            if user and user.status:
-                await handle_status_change(user.status)
+            # Direct raw user entity status query
+            result = await client(GetUsersRequest(id=[target_input]))
+            if result:
+                user = result[0]
+                if user.status:
+                    await handle_status_change(user.status)
         except Exception as e:
-            print(f"Polling check error: {e}")
+            print(f"Poller warning: {e}")
 
-        # Telegram rate-limits se safe rehne ke liye 9-10 second interval
-        await asyncio.sleep(9)
+        # 6 se 7 second ka fast interval taaki brief online sessions miss na hon
+        await asyncio.sleep(6)
+
+# Real-time event fallback
+@client.on(events.UserUpdate)
+async def user_event_handler(event):
+    if event.user_id == target_id and event.status:
+        await handle_status_change(event.status)
 
 async def start_tracker():
     global target_id, alert_dest_id
@@ -119,15 +132,17 @@ async def start_tracker():
     alert_dest_id = receiver_entity.id
 
     startup_msg = (
-        f"🚀 <b>Tracker Service Live!</b>\n"
-        f"🎯 Target: @{TARGET_USER} (ID: <code>{target_id}</code>)\n"
-        f"🇮🇳 Clock: IST (Asia/Kolkata)\n"
-        f"🛡 Dual Tracking: Standard & Nobody Modes"
+        f"🚀 <b>Deep Presence Tracker Live!</b>\n"
+        f"🎯 Target: @{TARGET_USER}\n"
+        f"⚡ Active Host Heartbeat: Enabled\n"
+        f"🇮🇳 Timezone: IST"
     )
     await send_alert(startup_msg)
 
-    # Polling task start karna
-    asyncio.create_task(status_polling_loop())
+    # Dono background loops execute karna
+    asyncio.create_task(keep_host_online_loop())
+    asyncio.create_task(deep_status_poller())
+
     await client.run_until_disconnected()
 
 if __name__ == '__main__':
